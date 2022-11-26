@@ -1,0 +1,132 @@
+Diaphragm.FACS <- read.csv("~/TabulaMuris_droplet/FACS/Diaphragm-counts.csv", row.names=1)
+annotations.FACS<-read.csv("~/TabulaMuris_droplet/annotations_facs.csv")
+label.Diaphragm.FACS<-annotations.FACS%>%filter(tissue == "Diaphragm")%>%select(c(cell_ontology_class,cell,free_annotation))
+row.names(label.Diaphragm.FACS)<-label.Diaphragm.FACS[,2]
+Diaphragm.FACS<-Diaphragm.FACS[,row.names(label.Diaphragm.FACS)]
+pc.Diaphragm.FACS<-prcomp(t(Diaphragm.FACS))
+scores.Diaphragm.FACS<-rare.cell.scores(pc.Diaphragm.FACS$x[,1:150])
+L <- 100 # Number of estimators
+M <- 50 # Dims to be sampled
+
+# Model creation without optional parameter
+model.Diaphragm.FACS <- new(FiRE::FiRE, L, M)
+
+## There are 3 more optional parameters they can be passed as
+## model <- new(FiRE::FiRE, L, M, H, seed, verbose)
+
+## Hashing all samples
+model.Diaphragm.FACS$fit(pc.Diaphragm.FACS$x[,1:150])
+rareness_score.Diaphragm.FACS<- model.Diaphragm.FACS$score(pc.Diaphragm.FACS$x[,1:150])
+tsne.Diaphragm.FACS<-Rtsne::Rtsne(pc.Diaphragm.FACS$x[,1:150],pca = F)
+scores.Diaphragm.FACS.lof<-Rlof::lof(pc.Diaphragm.FACS$x[,1:150],k=50)
+scores.Diaphragm.FACS.lof<-stardardize(scores.Diaphragm.FACS.lof)
+scores.combin.lof<-Rlof::lof(pc.combin3$x[,1:25],k=50)
+scores.combin.lof<-stardardize(scores.combin.lof)
+scores.marrow.lof<-Rlof::lof(pc$x[,1:25],k=50)
+scores.marrow.lof<-stardardize(scores.marrow.lof)
+plt.Diaphragm.FACS<-scRCD.visualize(tsne = tsne.Diaphragm.FACS, scores = scores.Diaphragm.FACS,
+                                 cell.type = label.Diaphragm.FACS[,1], frac = 0.15, method.name = "CSD")
+plt.Diaphragm.FACS.fire<-scRCD.visualize(tsne = tsne.Diaphragm.FACS, scores = rareness_score.Diaphragm.FACS,
+                                    cell.type = label.Diaphragm.FACS[,1], frac = 0.15, method.name = "FiRE")
+plt.Diaphragm.FACS.lof<-scRCD.visualize(tsne = tsne.Diaphragm.FACS, scores = scores.Diaphragm.FACS.lof,
+                                         cell.type = label.Diaphragm.FACS[,1], frac = 0.15, method.name = "LOF")
+plt.Diaphragm.FACS$plt.rare
+plt.Diaphragm.FACS$plt.all
+plt.Diaphragm.FACS.fire$plt.rare
+plt.Diaphragm.FACS.lof$plt.rare
+plot_grid(plt.Diaphragm.FACS$plt.rare,plt.Diaphragm.FACS.fire$plt.rare,plt.Diaphragm.FACS$plt.all)
+
+df.Diaphragm<-data.frame(tsne1 = tsne.Diaphragm.FACS$Y[,1], tsne2= tsne.Diaphragm.FACS$Y[,2],
+                         scores_scRCD = scores.Diaphragm.FACS, scores_FiRE = stardardize(rareness_score.Diaphragm.FACS),
+                         scores_LOF = scores.Diaphragm.FACS.lof)
+df.vis.combin<-data.frame(tsne1 = tsne.combin$Y[,1], tsne2 = tsne.combin$Y[,2],
+                          scores_scRCD = scores.combin, scores_FiRE = stardardize(rareness_score.combin),
+                          scores_LOF= stardardize(scores.combin.lof))
+df.vis.marrow<-data.frame(tsne1 = tsne$Y[,1], tsne2 = tsne$Y[,2],
+                          scores_scRCD = obj, scores_FiRE = stardardize(rareness_score),
+                          scores_LOF = scores.marrow.lof)
+
+grad.plt.Diaphragm.FACS.scRCD<-rareness.gradient.fig(data = df.Diaphragm,method.name = "CSD",legend.title = "CSD", anchor.frac = 0.15,
+                      x.axis.title = "t-SNE 1", y.axis.title="t-SNE 2", size = 0.25)
+grad.plt.Diaphragm.FACS.fire<-rareness.gradient.fig(data = df.Diaphragm,method.name = "FiRE",legend.title = "RS", anchor.frac = 0.15,
+                                                     x.axis.title = "t-SNE 1", y.axis.title="t-SNE 2", size = 0.25)
+grad.plt.Diaphragm.FACS.lof<-rareness.gradient.fig(data = df.Diaphragm,method.name = "LOF",legend.title = "LOF", anchor.frac = 0.15,
+                                                    x.axis.title = "t-SNE 1", y.axis.title="t-SNE 2", size = 0.25)
+plt.traj.marrow.LOF<-rareness.gradient.fig(data = df.vis.marrow, method.name = "LOF",legend.title = "LOF", anchor.frac = 0.15,
+                                           x.axis.title = "t-SNE 1", y.axis.title="t-SNE 2", size = 0.25)
+plt.traj.marrow.CSD<-rareness.gradient.fig(data = df.vis.marrow, method.name = "CSD",legend.title = "CSD", anchor.frac = 0.15,
+                                           x.axis.title = "t-SNE 1", y.axis.title="t-SNE 2", size = 0.25)
+plt.traj.marrow.FiRE<-rareness.gradient.fig(data = df.vis.marrow, method.name = "FiRE",
+                                            legend.title = "RS", anchor.frac = 0.15,
+                                           x.axis.title = "t-SNE 1", y.axis.title="t-SNE 2", size = 0.25)
+plt.traj.combin.LOF<-rareness.gradient.fig(data = df.vis.combin, method.name = "LOF",legend.title = "LOF", anchor.frac = 0.15,
+                                           x.axis.title = "t-SNE 1", y.axis.title="t-SNE 2", size = 0.25)
+plt.traj.combin.CSD<-rareness.gradient.fig(data = df.vis.combin, method.name = "CSD",legend.title = "CSD", anchor.frac = 0.15,
+                                           x.axis.title = "t-SNE 1", y.axis.title="t-SNE 2", size = 0.25)
+plt.traj.combin.FiRE<-rareness.gradient.fig(data = df.vis.combin, method.name = "FiRE",
+                                            legend.title = "RS", anchor.frac = 0.15,
+                                            x.axis.title = "t-SNE 1", y.axis.title="t-SNE 2", size = 0.25)
+plot_grid(plt.Diaphragm.FACS$plt.all,
+          grad.plt.Diaphragm.FACS.scRCD,
+          grad.plt.Diaphragm.FACS.fire,
+          grad.plt.Diaphragm.FACS.lof,nrow = 1)
+justify.all<-function(plt){
+  plt$labels$x<-"t-SNE 1"
+  plt$labels$y<-"t-SNE 2"
+  plt$labels$colour<-"Cell Subtype"
+  return(plt)
+}
+justify.ano<-function(plt, method.name){
+  plt$theme$panel.background<-element_blank()
+  plt$theme$axis.line.x<-element_line(colour = "black", linewidth  = rel(1.5))
+  plt$theme$axis.line.y<-element_line(colour = "black", linewidth = rel(1.5))
+  plt$labels$title<-method.name
+  return(plt)
+}
+
+dev.off()
+pdf(file = "scRCD/Figure_1.pdf",width =9.5*(1+sqrt(5))/2*(2/3), height = 9.5)
+cowplot::plot_grid(justify.all(plt$plt.all),plt.traj.marrow.CSD, plt.traj.marrow.FiRE,#plt.traj.marrow.LOF,
+                   justify.all(plt.combin$plt.all), plt.traj.combin.CSD,plt.traj.combin.FiRE,#plt.traj.combin.LOF,
+                   justify.all(plt.Diaphragm.FACS$plt.all),grad.plt.Diaphragm.FACS.scRCD,grad.plt.Diaphragm.FACS.fire,#grad.plt.Diaphragm.FACS.lof,
+                   nrow = 3,ncol = 3,
+                   labels = LETTERS[1:9])
+dev.off()
+
+
+library(ggplot2)
+library(cowplot)
+scores.new.marrow<-scores(feature.mat = pc$x[,1:25])
+ano.scores.marrow<-scores.new.marrow$CAS
+scores.new.combin<-scores(feature.mat = pc.combin3$x[,1:25])
+ano.scores.combin<-scores.new.combin$CAS
+scores.new.Diaphragm<-scores(feature.mat = pc.Diaphragm.FACS$x[,1:25])
+ano.scores.Diaphragm<-scores.new.Diaphragm$CAS
+df.ano.Diaphragm<-data.frame(tsne1=tsne.Diaphragm.FACS$Y[,1],tsne2 = tsne.Diaphragm.FACS$Y[,2],
+                             anomalous.scores = scores.new.Diaphragm$CAS)
+df.ano.marrow<-data.frame(tsne1=tsne$Y[,1],tsne2 = tsne$Y[,2],
+                          anomalous.scores = scores.new.marrow$CAS)
+df.ano.combin<-data.frame(tsne1=tsne.combin$Y[,1],tsne2 = tsne.combin$Y[,2],
+                          anomalous.scores =scores.new.combin$CAS)
+plt.ano.Diaphragm<-ggplot(df.ano.Diaphragm,aes(x = tsne1, y=tsne2))+geom_point(aes(color = anomalous.scores),size =0.25)+xlab("t-SNE 1")+ylab("t-SNE 2")+scale_color_gradient(low = "green", high = "red", guide = "colourbar", name = "CAS")
+plt.ano.marrow<-ggplot(df.ano.marrow,aes(x = tsne1, y=tsne2))+geom_point(aes(color = anomalous.scores),size =0.25)+xlab("t-SNE 1")+ylab("t-SNE 2")+scale_color_gradient(low = "green", high = "red", guide = "colourbar", name = "CAS")
+plt.ano.combin<-ggplot(df.ano.combin,aes(x = tsne1, y=tsne2))+geom_point(aes(color = anomalous.scores),size =0.25)+xlab("t-SNE 1")+ylab("t-SNE 2")+scale_color_gradient(low = "green", high = "red", guide = "colourbar", name = "CAS")
+dev.off()
+pdf(file = "scRCD/Figure_2.pdf",width = 12, height = 8)
+plot_grid(plt$plt.all,plt.combin$plt.all,plt.Diaphragm.FACS$plt.all,
+          plt.ano.marrow,
+          plt.ano.combin,
+          plt.ano.Diaphragm, labels = LETTERS[1:6],align = "h")
+dev.off()
+
+dev.off()
+pdf(file = "scRCD/Figure_22.pdf",width = 12, height = 6)
+pdf(file = "../Figure_22.pdf",width = 12, height = 6)
+plot_grid(justify.ano(plt.ano.marrow, method.name = "CAS"),
+          justify.ano(plt.ano.combin, method.name = "CAS"),
+          justify.ano(plt.ano.Diaphragm, method.name = "CAS"),
+          plt.traj.marrow.LOF,
+          plt.traj.combin.LOF,
+          grad.plt.Diaphragm.FACS.lof,labels = LETTERS[1:6],align = "h",ncol =3)
+dev.off()
+

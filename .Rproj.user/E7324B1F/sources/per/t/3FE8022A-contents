@@ -1,0 +1,109 @@
+library(Matrix)
+matrix_dir = "~/TabulaMuris_droplet/droplet/Spleen-10X_P7_6/"   
+barcode.path <- paste0(matrix_dir, "barcodes.tsv")
+features.path <- paste0(matrix_dir, "genes.tsv")
+matrix.path <- paste0(matrix_dir, "matrix.mtx")
+mat <- readMM(file = matrix.path)
+feature.names = read.delim(features.path,
+                           header = FALSE,
+                           stringsAsFactors = FALSE)
+barcode.names = read.delim(barcode.path,
+                           header = FALSE,
+                           stringsAsFactors = FALSE)
+colnames(mat) = barcode.names$V1
+rownames(mat) = feature.names$V1
+
+Spleen10XP76<-as.matrix(mat)
+
+annotations.droplet<-read.csv("~/TabulaMuris_droplet/annotations_droplet.csv",row.names = 1)
+library(tidyverse)
+label.Spleen10XP76<-annotations.droplet%>%filter(channel == "10X_P7_6")%>%select(cell_ontology_class)
+colnames(Spleen10XP76)<-sapply(colnames(Spleen10XP76),function(x){
+  return(stringr::str_trunc(x, side = "right", width = stringr::str_length(x)-2, ellipsis = ""))
+})
+
+row.names(label.Spleen10XP76)<-sapply(row.names(label.Spleen10XP76),function(x){
+  return(stringr::str_trunc(x, side = "left", width = stringr::str_length(x)-9, ellipsis = ""))
+})
+
+Spleen10XP76<-as.matrix(Spleen10XP76)
+
+Spleen10XP76.fltd<-Spleen10XP76[which(rowSums(matrix(as.integer(as.logical(Spleen10XP76)),
+                                                     nrow=dim(Spleen10XP76)[1],ncol=dim(Spleen10XP76)[2]))>floor(0.1*dim(Spleen10XP76)[2])),]
+remove(Spleen10XP76)
+###---------------------------------------------------------------------------------
+Bcell<-Spleen10XP76[,which(label.Spleen10XP76 == "B cell")]
+dendritic<-Spleen10XP76[,which(label.Spleen10XP76 == "dendritic cell")]
+macrophage<-Spleen10XP76[,which(label.Spleen10XP76 == "macrophage")]
+
+combin3.unfltd<-cbind(Bcell,dendritic,macrophage)
+
+###--------------------------------------------------------------------------------
+
+Bcell<-Spleen10XP76.fltd[,which(label.Spleen10XP76 == "B cell")]
+dendritic<-Spleen10XP76.fltd[,which(label.Spleen10XP76 == "dendritic cell")]
+macrophage<-Spleen10XP76.fltd[,which(label.Spleen10XP76 == "macrophage")]
+
+combin3<-cbind(Bcell,dendritic,macrophage)
+label.combin3<-c(rep("B cell",dim(Bcell)[2]),
+                 rep("dendritic cell", dim(dendritic)[2]),
+                 rep("macrophage",dim(macrophage)[2]))
+remove(Bcell,dendritic,macrophage)
+
+pc.combin3<-prcomp(t(combin3))
+
+scores.combin.knn50<-rare.cell.scores(feature.mat = combin.obj$pc, anchor.frac = 0.1, local.sparse = 50)
+scores.combin<-rare.cell.scores(feature.mat = combin.obj$pc, anchor.frac = 0.1)
+
+
+
+
+rnames <- rownames(pc$x[,1:25])
+cnames <- colnames(pc$x[,1:25])
+
+## Converting data.frame to matrix
+pc$x[,1:25] <- as.matrix(pc$x[,1:25])
+sample_label <- as.matrix(sample_label)
+
+L <- 100 # Number of estimators
+M <- 50 # Dims to be sampled
+
+# Model creation without optional parameter
+model <- new(FiRE::FiRE, L, M)
+
+## There are 3 more optional parameters they can be passed as
+## model <- new(FiRE::FiRE, L, M, H, seed, verbose)
+
+## Hashing all samples
+model$fit(combin.obj$pc)
+
+## Computing score of each sample
+rareness_score.combin<- model$score(combin.obj$pc)
+
+tsne.combin<-Rtsne::Rtsne(combin.obj$pc)
+
+plt.combin.knn50<-scRCD.visualize(tsne = tsne.combin, scores = scores.combin.knn50, cell.type = label.combin3,frac = 0.15)
+plt.combin<-scRCD.visualize(tsne = tsne.combin, scores = scores.combin, cell.type = label.combin3,frac = 0.15)
+plt.fire.combin<-scRCD.visualize(tsne = tsne.combin, scores = rareness_score.combin, cell.type = label.combin3,frac = 0.15)
+plt.fire.combin.rev<-scRCD.visualize(tsne = tsne.combin, scores = rareness_score.combin, method.name = "Fire",rare = F,
+                                     cell.type = label.combin3,frac = 0.15)
+plt.combin.knn50.rev<-scRCD.visualize(tsne = tsne.combin, scores = scores.combin.knn50,
+                                      cell.type = label.combin3,frac = 0.15,method.name = "scRCD", rare = F)
+cowplot::plot_grid(plt.combin$plt.rare,plt.combin.knn50$plt.rare,
+                   plt.fire.combin$plt.rare, plt.combin$plt.all, 
+                   labels = c("knn50","global", "FiRE","all cells"))
+df.vis.combin<-data.frame(tsne1 = tsne.combin$Y[,1], tsne2 = tsne.combin$Y[,2],
+                          scores_scRCD = scores.combin, scores_FiRE = stardardize(rareness_score.combin))
+df.vis.marrow<-data.frame(tsne1 = tsne$Y[,1], tsne2 = tsne$Y[,2],
+                          scores_scRCD = obj, scores_FiRE = stardardize(rareness_score))
+library(ggplot2)
+plt.traj.combin.scRCD<-rareness.gradient.fig(df.vis.combin, method.name = "scRCD", size = 0.75)
+plt.traj.combin.FiRE<-rareness.gradient.fig(df.vis.combin, method.name = "FiRE", size = 0.75)
+
+plt.traj.marrow.scRCD<-rareness.gradient.fig(df.vis.marrow, method.name = "scRCD", size = 0.75)
+plt.traj.marrow.FiRE<-rareness.gradient.fig(df.vis.marrow, method.name = "FiRE", size = 0.75)
+
+cowplot::plot_grid(plt$plt.all, plt.traj.marrow.scRCD, plt.traj.marrow.FiRE,
+                   plt.combin$plt.all, plt.traj.combin.scRCD,plt.traj.combin.FiRE,
+                   nrow = 2,ncol = 3,
+                   labels = LETTERS[1:6])

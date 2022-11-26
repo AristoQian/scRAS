@@ -1,0 +1,200 @@
+rare.cell.scores<-function(feature.mat, anchor.frac = 0.15, local.sparse = NULL, n.cores = 1,verbose = T, K=30, return = "CSD"){
+  if(mode(feature.mat)=="list"){
+    feature.mat<-as.matrix(feature.mat)
+  }
+  if(is.null(local.sparse)!=T && is.numeric(local.sparse)==F){
+    stop("local.sparse must be an integer smaller than the number of the number of cells minus one")
+  }
+  if(return!="CSD"){
+    if(return!="Anomalous"){
+      stop("return must be 'CSD' or 'Anomalous'")
+    }
+  }
+  #the index of uniformly sampled cells
+  uniform.sample.index<- sample(1:dim(feature.mat)[1],size = floor(anchor.frac*dim(feature.mat)[1]),replace = F)
+  
+  #distance matrix between anchors and other cells
+  distance.cell2remain<-function(x,cell.num,red.dat){
+    as.matrix(sapply(1:cell.num, function(y){
+      if(x!=y){return(norm(as.matrix(red.dat[,x]-red.dat[,y]),"F"))}
+      else{return(0)}
+    }))
+  }
+  
+  
+  if(verbose == T){print("Constructing affinity matrix")}
+  
+  H<-sapply(uniform.sample.index,function(x){
+    distance.cell2remain(x = x, red.dat = t(feature.mat), cell.num = dim(feature.mat)[1])
+  })
+  
+  #the hausdorff distance between sampled points and retained points
+  cell.wise.min.distance<-apply(H,1,function(x){
+    sort.x<-sort(x)
+    if(sort.x[1]==0){
+      return(sort.x[2])
+    }
+    else{
+      return(sort.x[2])
+    }
+  })
+  if(is.null(local.sparse)){
+    # B<-H
+    #D.H<-stats::quantile(cell.wise.min.distance,alpha)
+    # D.H<-apply(B,1,max)
+    #the bipartite based on Hausdorff distance and K-NN
+    #B[B>D.H]<-0
+    
+    
+    # Knn.dist.list<-lapply(1:dim(B)[1],function(x){
+    #   if(length(which(B[x,]>0))==0){
+    #     return(1)
+    #   }
+    #   else{
+    #     dist.anc<-B[x,which(B[x,]>0)]
+    #     sum.dist.anc<-sum(dist.anc)
+    #     len.dist.anc<-length(which(B[x,]>0))
+    #     return(as.vector((D.H[x]-dist.anc)/(len.dist.anc*D.H[x]-sum(dist.anc))))
+    #   }
+    #   
+    # })
+    # for(i in 1:dim(B)[1]){
+    #   if(length(which(B[i,]>0))==0){
+    #     B[i,which(H[i,]==min(H[i,]))]<- 1
+    #   }
+    #   else{
+    #     B[i,which(B[i,]>0)]<-Knn.dist.list[[i]]
+    #   }
+    #   
+    # }
+    
+    # print("Calculating rare cell score for each cell")
+    # #Laplacian, Degree matrix
+    # Lambda <- diag(apply(B,2,sum))[which(apply(B,2,sum) != 0),which(apply(B,2,sum) != 0)]
+    # W <- B[,which(apply(B,2,sum) != 0)]%*%t(B[,which(apply(B,2,sum) != 0)])
+    # L <- diag(apply(W,1,sum)) - W
+    # 
+    # #compute the rareness score of each cell
+    # scores<-sapply(1:dim(L)[1], function(x){L[x,x]})
+    # scores<-(-1)*(scores-min(scores))/(max(scores)-min(scores))
+    if(verbose ==T){print("Computing the rareness scores considering the distances from majority cells")}
+    
+    norm.H<-diag(1/apply(H,1,sum))%*%H
+    W =norm.H%*%t(H)
+    L<-diag(apply(W,1,sum)) - W
+    scores<-sapply(1:dim(L)[1], function(x){L[x,x]})
+    scores<-(-1)*scores
+    scores<-(scores-min(scores))/(max(scores)-min(scores))
+  }
+  else{
+    if(verbose ==T){print("Computing the rareness scores considering the local sparsity of data points of cells")}
+    
+    dist.mat<-parallel::mcmapply(function(x){
+      distance.cell2remain(x = x, red.dat = t(feature.mat), cell.num = dim(feature.mat)[1])
+    }, 1:dim(feature.mat)[1], mc.cores = n.cores)
+    cell.specific.knearest.locs<-t(parallel::mcmapply(function(x){
+      return(order(dist.mat[x,])[1:local.sparse])
+    }, 1:dim(feature.mat)[1], mc.cores = n.cores))
+    scores<-parallel::mcmapply(function(x){
+      knearest.locs<-as.vector(cell.specific.knearest.locs[x,])
+      h<-H[x,]
+      normalized.h<-H[x,]/sum(H[x,])
+      h<-matrix(normalized.h,ncol = dim(H)[2])
+      vec.sum.nearest.cells<-matrix(0,ncol = dim(H)[2])
+      for(i in knearest.locs){
+        if(i!=x){
+          vec.sum.nearest.cells<-vec.sum.nearest.cells + H[i,]
+        }
+      }
+      sum.vec.sum.nearest.cells<-sum(vec.sum.nearest.cells)
+      edges.from.nearest.cells<-sapply(knearest.locs,function(y){
+        if(y!=x){
+          return(h%*%matrix(H[y,],nrow = dim(H)[2]))
+        }
+        else{
+          return(0)
+        }
+      })
+      return(sum(edges.from.nearest.cells)/sum.vec.sum.nearest.cells)
+      
+    }, 1:dim(feature.mat)[1], mc.cores = n.cores)
+    scores<-(-1)*scores
+    scores<-(scores-min(scores))/(max(scores)-min(scores))
+  }
+  if(verbose==T){print("Computing anomalous scores")}
+  dist.mat<-parallel::mcmapply(function(x){
+    distance.cell2remain(x = x, red.dat = t(feature.mat), cell.num = dim(feature.mat)[1])
+  }, 1:dim(feature.mat)[1], mc.cores = n.cores)
+  cell.specific.knearest.locs<-t(parallel::mcmapply(function(x){
+    return(order(dist.mat[x,])[1:K])
+  }, 1:dim(feature.mat)[1], mc.cores = n.cores))
+  scores.knn<-parallel::mcmapply(function(x){
+    mean(scores[cell.specific.knearest.locs[x,]])
+  },1:length(scores),mc.cores = n.cores)
+  anomalous.scores<-abs(scores-scores.knn)
+  anomalous.scores<-(anomalous.scores-min(anomalous.scores))/(max(anomalous.scores)-min(anomalous.scores))
+  if(return=="CSD"){return(scores)}
+  if(return=="Anomalous"){return(anomalous.scores)}
+}
+
+scores.knn60<-rare.cell.scores(feature.mat = pc$x[,1:25],anchor.frac = 0.1, local.sparse = 60)
+scores.knn50<-rare.cell.scores(feature.mat = pc$x[,1:25],anchor.frac = 0.1, local.sparse = 50)
+scores.knn40<-rare.cell.scores(feature.mat = pc$x[,1:25],anchor.frac = 0.1, local.sparse = 40)
+scores.knn30<-rare.cell.scores(feature.mat = pc$x[,1:25],anchor.frac = 0.1, local.sparse = 30)
+scores.knn20<-rare.cell.scores(feature.mat = pc$x[,1:25],anchor.frac = 0.1, local.sparse = 20)
+scores.knn10<-rare.cell.scores(feature.mat = pc$x[,1:25],anchor.frac = 0.1, local.sparse = 10)
+
+obj<-rare.cell.scores(feature.mat = pc$x[,1:25],anchor.frac = 0.15)
+load("scRCD/marrow.rda")
+load("scRCD/cell.type.marrow.rda")
+
+rnames <- rownames(pc$x[,1:25])
+cnames <- colnames(pc$x[,1:25])
+
+## Converting data.frame to matrix
+pc$x[,1:25] <- as.matrix(pc$x[,1:25])
+sample_label <- as.matrix(sample_label)
+
+L <- 100 # Number of estimators
+M <- 50 # Dims to be sampled
+
+# Model creation without optional parameter
+model <- new(FiRE::FiRE, L, M)
+
+## There are 3 more optional parameters they can be passed as
+## model <- new(FiRE::FiRE, L, M, H, seed, verbose)
+
+## Hashing all samples
+model$fit(pc$x[,1:25])
+
+## Computing score of each sample
+rareness_score <- model$score(pc$x[,1:25])
+plt.fire<-scRCD.visualize(tsne = tsne, scores = rareness_score,frac = 0.15,cell.type = cell.type.marrow,method.name = "Fire")
+
+plt2<-scRCD.visualize(tsne = tsne, scores = -obj$unmod.scores, cell.type = cell.type.marrow, frac = 0.1)
+plt<-scRCD.visualize(tsne = tsne, scores = obj$unmod.scores, cell.type = cell.type.marrow, frac = 0.15)
+plt.fire.rev<-scRCD.visualize(tsne = tsne, scores = rev(rareness_score), cell.type = cell.type.marrow, frac = 0.1)
+plt.rev<-scRCD.visualize(tsne = tsne, scores = rev(obj$unmod.scores), cell.type = cell.type.marrow, frac = 0.1)
+cowplot::plot_grid(plt.fire$plt.all,
+                   plt$plt.rare,
+                   plt2$plt.rare ,
+                   plt.fire$plt.rare,
+                   plt.fire.rev$plt.rare,
+                   labels = c(letters[1:5]))
+
+plt.knn60<-scRCD.visualize(tsne = tsne, scores = scores.knn60,frac = 0.15,cell.type = cell.type.marrow)
+plt.knn60.rev<-scRCD.visualize(tsne = tsne, scores = rev(scores.knn60),frac = 0.15,cell.type = cell.type.marrow)
+plt.knn50<-scRCD.visualize(tsne = tsne, scores = scores.knn50,frac = 0.15,cell.type = cell.type.marrow)
+plt.knn40<-scRCD.visualize(tsne = tsne, scores = scores.knn40,frac = 0.15,cell.type = cell.type.marrow)
+plt.knn30<-scRCD.visualize(tsne = tsne, scores = scores.knn30,frac = 0.15,cell.type = cell.type.marrow)
+plt.knn20<-scRCD.visualize(tsne = tsne, scores = scores.knn20,frac = 0.15,cell.type = cell.type.marrow)
+plt.knn10<-scRCD.visualize(tsne = tsne, scores = scores.knn10,frac = 0.15,cell.type = cell.type.marrow)
+plt.knn50$plt.rare
+plt$plt.rare
+cowplot::plot_grid(plt.knn60$plt.rare,plt.knn50$plt.rare, plt.knn40$plt.rare, plt.knn30$plt.rare, plt.knn20$plt.rare, plt$plt.rare,
+                   labels = c("knn60","knn50", "knn40","knn30", "knn20","knn10"))
+
+
+plt.fire.rev<-scRCD.visualize(tsne = tsne, rareness_score,frac = 0.1, rare = F, method.name = "FiRE",cell.type = cell.type.marrow)
+plt.rev<-scRCD.visualize(tsne = tsne, obj,frac = 0.1, rare = F, method.name = "scRCD global",cell.type = cell.type.marrow)
+plt.knn50.rev<-scRCD.visualize(tsne = tsne, scores.knn50,frac = 0.1, rare = F, method.name = "scRCD global",cell.type = cell.type.marrow)

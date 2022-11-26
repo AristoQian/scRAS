@@ -1,0 +1,51 @@
+#include <Rcpp.h>
+#include <math.h>
+using namespace Rcpp;
+using namespace std;
+
+// This is a simple example of exporting a C++ function to R. You can
+// source this function into an R session using the Rcpp::sourceCpp
+// function (or via the Source button on the editor toolbar). Learn
+// more about Rcpp at:
+//
+//   http://www.rcpp.org/
+//   http://adv-r.had.co.nz/Rcpp.html
+//   http://gallery.rcpp.org/
+//
+
+// [[Rcpp::export]]
+NumericMatrix distance_cpp(int x, int cell_num, NumericMatrix red_dat) {
+  NumericMatrix distance(cell_num, 1);
+  int feature_num = red_dat.ncol();
+  int i = 0;
+  for(i=0; i<cell_num; i++){
+    if(i == x-1){
+      double temp = 0;
+      distance(i,0) = temp;
+    }
+    else{
+      double temp = 0;
+      int j = 0;
+      for(j = 0; j < feature_num; j++){
+        double diff = red_dat(x-1,j)-red_dat(i,j);
+        double add_term = pow(diff,2);
+        temp+=add_term;
+      }
+      double temp2 = 0;
+      temp2 = sqrt(temp);
+      distance(i,0) = temp2;
+    }
+  }
+
+  return distance;
+}
+
+
+// You can include R code blocks in C++ files processed with sourceCpp
+// (useful for testing and development). The R code will be automatically
+// run after the compilation.
+//
+
+/*** R
+timesTwo(42)
+*/
